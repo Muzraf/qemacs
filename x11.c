@@ -1299,9 +1299,25 @@ static void x11_dpy_maximize(QEditScreen *s, int maximize)
     X11State *xs = s->priv_data;
     XWindowAttributes attribs;
     Window dummy;
+    static Window ancestor_window;
+    static int first_time = 1;
+    /* get the root child who has relation with us */
+    if (first_time) {
+        first_time = 0;
+        dummy = xs->window;
+        ancestor_window = dummy;
+        for (;;) {
+            Window *child_windows;
+            unsigned int num_child_windows;
+            if (dummy == xs->root)
+                break;
+            ancestor_window = dummy;
+            XQueryTree(xs->display, ancestor_window, &xs->root, &dummy, &child_windows, &num_child_windows);
+            XFree(child_windows);
+        }
+    }
 
-    /* if window manager supports Extended window manager hints */
-    if (xs->NET_WM_STATE_MAXIMIZED_VERT
+    if (xs->NET_WM_STATE && xs->NET_WM_STATE_MAXIMIZED_VERT
         && xs->NET_WM_STATE_MAXIMIZED_HORZ)
     {
         x11_send_event_to_wm(xs, xs->NET_WM_STATE,
@@ -1314,14 +1330,21 @@ static void x11_dpy_maximize(QEditScreen *s, int maximize)
     else
     {
         if (maximize) {
-
+            XWindowAttributes ancestor_attribs;
+            int kw, kh;
+            XGetWindowAttributes(xs->display, ancestor_window, &ancestor_attribs);
             XGetWindowAttributes(xs->display, xs->window, &attribs);
             xs->last_window_width = attribs.width;
             xs->last_window_height = attribs.height;
-            XTranslateCoordinates(xs->display, xs->window, xs->root,
+
+            kw = ancestor_attribs.width - attribs.width;
+            kh = ancestor_attribs.height - attribs.height;
+
+
+            XTranslateCoordinates(xs->display, ancestor_window, xs->root,
                                   0, 0, &xs->last_window_x, &xs->last_window_y, &dummy);
             XMoveResizeWindow(xs->display, xs->window,
-                              0, 0, xs->screen_width, xs->screen_height);
+                              0, 0, xs->screen_width - kw, xs->screen_height - kh);
         } else {
             if (xs->last_window_width) {
                 XMoveResizeWindow(xs->display, xs->window,
@@ -1336,18 +1359,18 @@ static void x11_dpy_maximize(QEditScreen *s, int maximize)
 
 static void x11_dpy_full_screen(QEditScreen *s, int full_screen)
 {
+    Window *dummy;
+    XWindowAttributes attr1;
     X11State *xs = s->priv_data;
     /* if window manager supports Extended window manager hints */
     if (xs->NET_WM_STATE && xs->NET_WM_STATE_FULLSCREEN)
     {
-        {
-            x11_send_event_to_wm(xs, xs->NET_WM_STATE,
-                                 full_screen ?
-                                 _NET_WM_STATE_ADD :
-                                 _NET_WM_STATE_REMOVE,
-                                 xs->NET_WM_STATE_FULLSCREEN, 0, 1, 0);
+        x11_send_event_to_wm(xs, xs->NET_WM_STATE,
+                             full_screen ?
+                             _NET_WM_STATE_ADD :
+                             _NET_WM_STATE_REMOVE,
+                             xs->NET_WM_STATE_FULLSCREEN, 0, 1, 0);
 
-        }
     }
     /* else do the simple way */
     else
